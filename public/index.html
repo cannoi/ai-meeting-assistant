@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Meeting Assistant — Trợ lý cuộc họp AI</title>
+  <link rel="stylesheet" href="style.css">
+<style>.paf-made-by{position:fixed;right:8px;bottom:8px;width:min(72px,12vw);max-width:12vw;height:auto;object-fit:contain;opacity:.5;background:transparent;padding:0;border:0;box-shadow:none;filter:none;pointer-events:none;z-index:30}</style></head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar / Meeting List -->
+    <aside class="sidebar">
+      <div class="brand">
+        <h2>🎙️ AI Meeting</h2>
+        <p class="subtitle">Trợ lý cuộc họp thông minh</p>
+      </div>
+      
+      <div class="sidebar-actions">
+        <button id="btn-new-meeting" class="btn btn-primary">+ New Meeting / Cuộc họp mới</button>
+        <input type="text" id="search-input" placeholder="Search meetings..." class="search-box">
+      </div>
+
+      <div class="meeting-list-container">
+        <div id="meeting-list" class="meeting-list">
+          <!-- Dynamic meeting items -->
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <span id="provider-status" class="provider-status">Checking AI provider...</span>
+      </div>
+    </aside>
+
+    <!-- Main Workspace -->
+    <main class="workspace">
+      <div id="empty-view" class="view empty-view">
+        <div class="empty-content">
+          <span class="empty-icon">💡</span>
+          <h2>Welcome to AI Meeting Assistant</h2>
+          <p>Record meetings in your browser, upload audio files, generate timestamped transcripts, extract decisions, and track action items.</p>
+          <div class="empty-actions">
+            <button class="btn btn-primary" onclick="createNewMeetingPrompt()">Create Your First Meeting</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="meeting-view" class="view meeting-view hidden">
+        <header class="meeting-header">
+          <div class="title-area">
+            <input type="text" id="meeting-title-input" class="meeting-title-input" placeholder="Meeting Title">
+            <div class="meeting-meta">
+              <select id="meeting-lang-select" class="select-sm">
+                <option value="english">English</option>
+                <option value="vietnamese">Tiếng Việt</option>
+              </select>
+              <span id="meeting-status-badge" class="badge">Draft</span>
+            </div>
+          </div>
+          <div class="header-actions">
+            <button id="btn-save-meeting" class="btn btn-secondary">Save Changes</button>
+            <div class="dropdown">
+              <button class="btn btn-secondary">Export ▾</button>
+              <div class="dropdown-content">
+                <a href="#" onclick="exportMeeting('markdown')">Markdown (.md)</a>
+                <a href="#" onclick="exportMeeting('text')">Plain Text (.txt)</a>
+                <a href="#" onclick="exportMeeting('csv')">Action Tasks (.csv)</a>
+              </div>
+            </div>
+            <button id="btn-delete-meeting" class="btn btn-danger-outline">Delete</button>
+          </div>
+        </header>
+
+        <!-- Tab Navigation -->
+        <nav class="tab-nav">
+          <button class="tab-btn active" data-tab="tab-audio">1. Audio & Recording</button>
+          <button class="tab-btn" data-tab="tab-transcript">2. Transcript</button>
+          <button class="tab-btn" data-tab="tab-analysis">3. Summary & AI Analysis</button>
+          <button class="tab-btn" data-tab="tab-tasks">4. Action Items & Tasks</button>
+        </nav>
+
+        <!-- Tab Content: Audio -->
+        <section id="tab-audio" class="tab-content active">
+          <div class="card-grid">
+            <div class="card">
+              <h3>🎙️ Browser Microphone Recording</h3>
+              <p>Record live meeting audio directly in your secure browser session.</p>
+              <div class="recorder-controls">
+                <button id="btn-start-record" class="btn btn-success">Start Recording</button>
+                <button id="btn-stop-record" class="btn btn-danger" disabled>Stop Recording</button>
+                <span id="recording-timer" class="timer">00:00</span>
+              </div>
+              <div id="audio-preview-container" class="hidden" style="margin-top: 15px;">
+                <audio id="recorded-audio-element" controls style="width: 100%;"></audio>
+              </div>
+            </div>
+
+            <div class="card">
+              <h3>📂 Upload Audio File</h3>
+              <p>Import pre-recorded audio files (MP3, WAV, M4A, WEBM).</p>
+              <input type="file" id="audio-file-input" accept="audio/*" class="file-input">
+              <button id="btn-upload-audio" class="btn btn-secondary" style="margin-top: 10px;">Upload Selected File</button>
+              <div id="upload-status" class="status-text"></div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top: 20px;">
+            <h3>🔒 Secure AI Consent & Next Step</h3>
+            <p>Before audio or transcript content is sent to the SoloHost-configured AI provider for analysis, please confirm consent.</p>
+            <label class="checkbox-label">
+              <input type="checkbox" id="consent-checkbox">
+              I consent to process this meeting audio/transcript securely with the configured AI provider.
+            </label>
+            <div style="margin-top: 15px;">
+              <button id="btn-proceed-transcribe" class="btn btn-primary">Transcribe & Prepare Transcript</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab Content: Transcript -->
+        <section id="tab-transcript" class="tab-content">
+          <div class="card">
+            <div class="section-header">
+              <h3>📝 Timestamped Transcript & Manual Fallback</h3>
+              <button id="btn-save-transcript" class="btn btn-secondary btn-sm">Save Transcript Edits</button>
+            </div>
+            <p>Review speaker labels and text. If direct audio transcription is unavailable, paste or type your meeting transcript below.</p>
+            
+            <div class="form-group" style="margin-bottom: 15px;">
+              <label>Manual Transcript / Fallback Entry (Format: Speaker: Text)</label>
+              <textarea id="manual-transcript-input" class="textarea-lg" placeholder="Host: Welcome everyone...
+John: Let's review the quarterly targets..."></textarea>
+              <button id="btn-submit-manual" class="btn btn-primary" style="margin-top: 10px;">Apply Manual Transcript</button>
+            </div>
+
+            <div id="transcript-segments-container" class="transcript-container">
+              <!-- Dynamic transcript segments -->
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab Content: Analysis -->
+        <section id="tab-analysis" class="tab-content">
+          <div class="card">
+            <div class="section-header">
+              <h3>🤖 AI Meeting Analysis & Summary</h3>
+              <button id="btn-run-analysis" class="btn btn-primary">Run AI Analysis</button>
+            </div>
+            <p>Generate concise meeting summaries, key points, and verified decisions from the reviewed transcript.</p>
+            
+            <div class="form-group" style="margin-top: 15px;">
+              <label>Meeting Summary</label>
+              <textarea id="summary-textarea" class="textarea-md" placeholder="AI summary will appear here or can be edited manually..."></textarea>
+            </div>
+
+            <div class="form-group">
+              <label>Key Decisions</label>
+              <div id="decisions-container">
+                <!-- Dynamic decisions -->
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="addDecisionRow()" style="margin-top: 5px;">+ Add Decision</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab Content: Tasks -->
+        <section id="tab-tasks" class="tab-content">
+          <div class="card">
+            <div class="section-header">
+              <h3>✅ Action Items & Task List</h3>
+              <button class="btn btn-secondary btn-sm" onclick="addTaskRow()">+ Add Task</button>
+            </div>
+            <p>Identify, assign, and track action items and deadlines resulting from the meeting.</p>
+            
+            <div id="tasks-table-container" style="margin-top: 15px;">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 40px;">Done</th>
+                    <th>Action Item</th>
+                    <th>Owner</th>
+                    <th>Due</th>
+                    <th style="width: 60px;">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="tasks-tbody">
+                  <!-- Dynamic tasks -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- Made with App Builder Badge -->
+  
+
+  <script src="app.js"></script>
+<img class="paf-made-by" src="/made-by.png" alt="Made with App Builder — Pi SoloHost"></body>
+</html>

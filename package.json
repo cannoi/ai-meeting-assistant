@@ -1,0 +1,15 @@
+{
+  "name": "ai-meeting-assistant",
+  "version": "1.0.0",
+  "description": "AI Meeting Assistant for recording, transcribing, summarizing, and tracking action items",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node tests/app.test.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "sqlite3": "^5.1.7"
+  },
+  "devDependencies": {}
+}
