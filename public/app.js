@@ -40,7 +40,7 @@ async function loadCapabilities() {
     const res = await fetch('/api/provider/capabilities');
     const data = await res.json();
     const statusEl = document.getElementById('provider-status');
-    if (data.has_api_key) {
+    if (data.configured || data.has_api_key) {
       statusEl.textContent = `AI Provider: ${data.provider} (Ready)`;
       statusEl.style.color = '#38a169';
     } else {
@@ -77,8 +77,8 @@ function renderMeetingList() {
     item.innerHTML = `
       <div class="meeting-item-title">${escapeHtml(m.title)}</div>
       <div class="meeting-item-meta">
-        <span>${m.language}</span>
-        <span class="badge">${m.status}</span>
+        <span>${m.language || 'english'}</span>
+        <span class="badge">${m.status || 'Draft'}</span>
       </div>
     `;
     item.addEventListener('click', () => selectMeeting(m.id));
@@ -94,7 +94,7 @@ async function createNewMeetingPrompt() {
     const res = await fetch('/api/meetings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, language: 'english' })
+      body: JSON.stringify({ title, language: 'english', date: new Date().toISOString() })
     });
     const newMeeting = await res.json();
     await loadMeetings();
@@ -113,8 +113,8 @@ async function selectMeeting(id) {
     document.getElementById('meeting-view').classList.remove('hidden');
 
     document.getElementById('meeting-title-input').value = currentMeeting.title;
-    document.getElementById('meeting-lang-select').value = currentMeeting.language;
-    document.getElementById('meeting-status-badge').textContent = currentMeeting.status;
+    document.getElementById('meeting-lang-select').value = currentMeeting.language || 'english';
+    document.getElementById('meeting-status-badge').textContent = currentMeeting.status || 'Draft';
     document.getElementById('summary-textarea').value = currentMeeting.summary || '';
 
     renderTranscriptSegments();
@@ -140,7 +140,7 @@ async function saveCurrentMeeting() {
       body: JSON.stringify({ title, language, summary })
     });
     currentMeeting = await res.json();
-    document.getElementById('meeting-status-badge').textContent = currentMeeting.status;
+    document.getElementById('meeting-status-badge').textContent = currentMeeting.status || 'Draft';
     loadMeetings();
     alert('Meeting saved successfully!');
   } catch (e) {
@@ -182,8 +182,6 @@ async function startRecording() {
         const base64Audio = reader.result;
         await uploadAudioBase64(base64Audio, 'audio/webm');
       };
-
-      // Stop tracks
       stream.getTracks().forEach(track => track.stop());
     };
 
@@ -244,7 +242,7 @@ async function uploadAudioBase64(base64, mimeType) {
       document.getElementById('recorded-audio-element').src = base64;
       selectMeeting(currentMeeting.id);
     } else {
-      alert('Upload failed: ' + data.error);
+      alert('Upload failed: ' + (data.error || 'Unknown error'));
     }
   } catch (e) {
     alert('Upload error: ' + e.message);
@@ -267,10 +265,10 @@ async function startTranscription() {
     });
     const data = await res.json();
     if (data.success) {
-      alert(data.message);
+      alert(data.message || 'Transcription completed successfully');
       selectMeeting(currentMeeting.id);
     } else {
-      alert('Transcription failed: ' + data.error);
+      alert('Transcription failed: ' + (data.error || 'Unknown error'));
     }
   } catch (e) {
     alert('Transcription error: ' + e.message);
@@ -293,10 +291,10 @@ async function submitManualTranscript() {
     });
     const data = await res.json();
     if (data.success) {
-      alert(data.message);
+      alert(data.message || 'Manual transcript applied');
       selectMeeting(currentMeeting.id);
     } else {
-      alert('Manual transcript error: ' + data.error);
+      alert('Manual transcript error: ' + (data.error || 'Unknown error'));
     }
   } catch (e) {
     alert('Error: ' + e.message);
@@ -327,19 +325,21 @@ async function saveTranscriptSegments() {
   if (!currentMeeting) return;
 
   const segments = [];
-  currentMeeting.transcript_segments.forEach((seg, idx) => {
-    const speakerInput = document.getElementById(`seg-speaker-${idx}`);
-    const textInput = document.getElementById(`seg-text-${idx}`);
-    if (speakerInput && textInput) {
-      segments.push({
-        id: seg.id,
-        speaker: speakerInput.value,
-        text: textInput.value,
-        start_ms: seg.start_ms,
-        end_ms: seg.end_ms
-      });
-    }
-  });
+  if (currentMeeting.transcript_segments) {
+    currentMeeting.transcript_segments.forEach((seg, idx) => {
+      const speakerInput = document.getElementById(`seg-speaker-${idx}`);
+      const textInput = document.getElementById(`seg-text-${idx}`);
+      if (speakerInput && textInput) {
+        segments.push({
+          id: seg.id || (idx + 1),
+          speaker: speakerInput.value,
+          text: textInput.value,
+          start_ms: seg.start_ms || 0,
+          end_ms: seg.end_ms || 0
+        });
+      }
+    });
+  }
 
   try {
     const res = await fetch(`/api/meetings/${currentMeeting.id}`, {
@@ -348,7 +348,8 @@ async function saveTranscriptSegments() {
       body: JSON.stringify({ transcript_segments: segments })
     });
     currentMeeting = await res.json();
-    alert('Transcript edits saved!');
+    alert('Transcript segments saved successfully!');
+    renderTranscriptSegments();
   } catch (e) {
     alert('Failed to save transcript: ' + e.message);
   }
@@ -356,7 +357,6 @@ async function saveTranscriptSegments() {
 
 async function runAiAnalysis() {
   if (!currentMeeting) return;
-
   try {
     const res = await fetch(`/api/meetings/${currentMeeting.id}/analyze`, {
       method: 'POST',
@@ -368,7 +368,7 @@ async function runAiAnalysis() {
       alert('AI Analysis completed successfully!');
       selectMeeting(currentMeeting.id);
     } else {
-      alert('Analysis failed: ' + data.error);
+      alert('Analysis failed: ' + (data.error || 'Unknown error'));
     }
   } catch (e) {
     alert('Analysis error: ' + e.message);
@@ -385,27 +385,51 @@ function renderDecisions() {
   }
 
   currentMeeting.decisions.forEach((dec, idx) => {
-    const div = document.createElement('div');
-    div.style.display = 'flex';
-    div.style.gap = '10px';
-    div.style.marginBottom = '8px';
-    div.innerHTML = `
-      <input type="text" class="transcript-text" value="${escapeHtml(dec.text)}" id="decision-input-${idx}">
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.gap = '10px';
+    row.style.marginBottom = '8px';
+    row.innerHTML = `
+      <input type="text" class="form-input" value="${escapeHtml(dec)}" id="decision-input-${idx}" style="flex: 1;">
       <button class="btn btn-danger-outline btn-sm" onclick="removeDecision(${idx})">X</button>
     `;
-    container.appendChild(div);
+    container.appendChild(row);
   });
 }
 
 function addDecisionRow() {
+  if (!currentMeeting) return;
   if (!currentMeeting.decisions) currentMeeting.decisions = [];
-  currentMeeting.decisions.push({ text: 'New decision' });
+  currentMeeting.decisions.push('New Decision');
   renderDecisions();
 }
 
 function removeDecision(idx) {
+  if (!currentMeeting || !currentMeeting.decisions) return;
   currentMeeting.decisions.splice(idx, 1);
   renderDecisions();
+}
+
+async function saveDecisions() {
+  if (!currentMeeting) return;
+  const decisions = [];
+  currentMeeting.decisions.forEach((_, idx) => {
+    const el = document.getElementById(`decision-input-${idx}`);
+    if (el && el.value.trim()) {
+      decisions.push(el.value.trim());
+    }
+  });
+
+  try {
+    await fetch(`/api/meetings/${currentMeeting.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decisions })
+    });
+    selectMeeting(currentMeeting.id);
+  } catch (e) {
+    console.error('Failed to save decisions:', e);
+  }
 }
 
 function renderTasks() {
@@ -413,42 +437,86 @@ function renderTasks() {
   tbody.innerHTML = '';
 
   if (!currentMeeting.action_items || currentMeeting.action_items.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #718096;">No action items found.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #718096; padding: 15px;">No action items found.</td></tr>';
     return;
   }
 
-  currentMeeting.action_items.forEach((task, idx) => {
+  currentMeeting.action_items.forEach((task) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td><input type="checkbox" ${task.completed ? 'checked' : ''} onchange="toggleTaskCompletion(${idx}, this.checked)"></td>
-      <td><input type="text" class="table-input" value="${escapeHtml(task.title)}" id="task-title-${idx}" style="width: 100%; border: 1px solid #cbd5e0; padding: 4px; border-radius: 4px;"></td>
-      <td><input type="text" class="table-input" value="${escapeHtml(task.owner || '')}" id="task-owner-${idx}" style="width: 100%; border: 1px solid #cbd5e0; padding: 4px; border-radius: 4px;"></td>
-      <td><input type="text" class="table-input" value="${escapeHtml(task.due_date_text || '')}" id="task-due-${idx}" style="width: 100%; border: 1px solid #cbd5e0; padding: 4px; border-radius: 4px;"></td>
-      <td><button class="btn btn-danger-outline btn-sm" onclick="removeTask(${idx})">Delete</button></td>
+      <td style="text-align: center;">
+        <input type="checkbox" ${task.status === 'completed' ? 'checked' : ''} onchange="toggleTaskStatus(${task.id}, this.checked)">
+      </td>
+      <td><input type="text" class="form-input-sm" value="${escapeHtml(task.task)}" id="task-text-${task.id}" onchange="updateTaskField(${task.id})"></td>
+      <td><input type="text" class="form-input-sm" value="${escapeHtml(task.assignee || '')}" id="task-assignee-${task.id}" onchange="updateTaskField(${task.id})"></td>
+      <td><input type="text" class="form-input-sm" value="${escapeHtml(task.due || '')}" id="task-due-${task.id}" onchange="updateTaskField(${task.id})"></td>
+      <td><button class="btn btn-danger-outline btn-sm" onclick="deleteTask(${task.id})">Del</button></td>
     `;
     tbody.appendChild(tr);
   });
 }
 
-function addTaskRow() {
-  if (!currentMeeting.action_items) currentMeeting.action_items = [];
-  currentMeeting.action_items.push({ title: 'New action item', owner: 'Team', due_date_text: 'Soon', completed: false });
-  renderTasks();
+async function addTaskRow() {
+  if (!currentMeeting) return;
+  try {
+    await fetch('/api/action-items', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ meeting_id: currentMeeting.id, task: 'New Action Item', assignee: 'Unassigned', due: 'TBD', status: 'pending' })
+    });
+    selectMeeting(currentMeeting.id);
+  } catch (e) {
+    alert('Failed to add task: ' + e.message);
+  }
 }
 
-function removeTask(idx) {
-  currentMeeting.action_items.splice(idx, 1);
-  renderTasks();
+async function toggleTaskStatus(taskId, completed) {
+  try {
+    await fetch(`/api/action-items/${taskId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: completed ? 'completed' : 'pending' })
+    });
+  } catch (e) {
+    console.error('Failed to update task status:', e);
+  }
 }
 
-function toggleTaskCompletion(idx, completed) {
-  if (currentMeeting.action_items[idx]) {
-    currentMeeting.action_items[idx].completed = completed;
+async function updateTaskField(taskId) {
+  const taskInput = document.getElementById(`task-text-${taskId}`);
+  const assigneeInput = document.getElementById(`task-assignee-${taskId}`);
+  const dueInput = document.getElementById(`task-due-${taskId}`);
+  if (!taskInput) return;
+
+  try {
+    await fetch(`/api/action-items/${taskId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        task: taskInput.value,
+        assignee: assigneeInput ? assigneeInput.value : '',
+        due: dueInput ? dueInput.value : ''
+      })
+    });
+  } catch (e) {
+    console.error('Failed to update task:', e);
+  }
+}
+
+async function deleteTask(taskId) {
+  try {
+    await fetch(`/api/action-items/${taskId}`, { method: 'DELETE' });
+    selectMeeting(currentMeeting.id);
+  } catch (e) {
+    alert('Failed to delete task: ' + e.message);
   }
 }
 
 function exportMeeting(format) {
-  if (!currentMeeting) return;
+  if (!currentMeeting) {
+    alert('Please select a meeting to export.');
+    return;
+  }
   window.open(`/api/meetings/${currentMeeting.id}/export?format=${format}`, '_blank');
 }
 
